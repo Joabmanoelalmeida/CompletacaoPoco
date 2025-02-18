@@ -4,23 +4,31 @@ from tkinter import messagebox
 from tkinter import ttk
 
 class FluxoOilCalculator:
-    def __init__(self, ko: float, h: float, pr: float, pw: float, Bo: float, uo: float, re: float, rw: float, L: float, A: float):
+    def __init__(self, ko: float, h: float, pr: float, pw: float, Bo: float, uo: float,
+                 re: float, rw: float, L: float, A: float, rd: float, kd: float):
         self.ko = ko
         self.h = h
         self.pr = pr
         self.pw = pw
-        self.uo = uo
         self.Bo = Bo
+        self.uo = uo
         self.re = re
         self.rw = rw
         self.L = L
         self.A = A
+        self.rd = rd
+        self.kd = kd
 
     def calcular_qo(self) -> float:
         denominador = self.uo * self.Bo * math.log(0.472 * self.re / self.rw)
         if denominador == 0:
             raise ValueError("Denominador igual a zero, verifique os valores inseridos.")
         return (0.00708 * self.ko * self.h * (self.pr - self.pw)) / denominador
+
+    def calcular_skin(self) -> float:
+        if self.kd == 0:
+            raise ValueError("kd não pode ser zero para o cálculo do Skin Factor.")
+        return ((self.ko / self.kd) - 1) * math.log(self.rd / self.rw)
 
 # Lista global para armazenar resultados dos poços
 poços = []
@@ -38,12 +46,16 @@ def adicionar_poco():
         rw = float(entry_rw.get())
         L = float(entry_L.get())
         A = float(entry_A.get())
+        rd = float(entry_rd.get())
+        kd = float(entry_k.get())
 
-        calculadora = FluxoOilCalculator(ko, h, pr, pw, Bo, uo, re, rw, L, A)
+        calculadora = FluxoOilCalculator(ko, h, pr, pw, Bo, uo, re, rw, L, A, rd, kd)
         resultado = calculadora.calcular_qo()
+        skin_result = calculadora.calcular_skin()
         poços.append({
             "nome": nome,
             "fluxo": resultado,
+            "skin": skin_result,
             "ko": ko,
             "h": h,
             "pr": pr,
@@ -53,9 +65,11 @@ def adicionar_poco():
             "re": re,
             "rw": rw,
             "L": L,
-            "A": A
+            "A": A,
+            "rd": rd,
+            "k": kd
         })
-        label_result.config(text=f"Fluxo calculado para o poço '{nome}': {resultado:.4f}")
+        label_result.config(text=f"Fluxo calculado para o poço '{nome}': {resultado:.4f} | Skin: {skin_result:.4f}")
         limpar_entradas()
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao calcular o fluxo drenado do poço: {e}")
@@ -67,7 +81,7 @@ def exibir_ranking():
     ranking = sorted(poços, key=lambda p: p["fluxo"], reverse=True)
     texto = "Ranking dos poços (maior fluxo primeiro):\n"
     for idx, poco in enumerate(ranking, start=1):
-        texto += f"{idx}º: Poço '{poco['nome']}' - Fluxo = {poco['fluxo']:.4f}\n"
+        texto += f"{idx}º: Poço '{poco['nome']}' - Fluxo = {poco['fluxo']:.4f} | Skin = {poco['skin']:.4f}\n"
     messagebox.showinfo("Ranking", texto)
 
 def limpar_entradas():
@@ -80,43 +94,42 @@ app.title("Calculadora para completação de poços de petróleo")
 app.state("zoomed")
 
 # Cabeçalho moderno com títulos, autor e professor
-# Configurando um estilo específico para o cabeçalho com cor de fundo alterada para branco
 style = ttk.Style(app)
 style.configure("Header.TFrame", background="#f0f4f8")
 style.configure("Header.TLabel", background="#f0f4f8", foreground="#264653")
 
-header_frame = ttk.Frame(app, padding="10", style="Header.TFrame")
-header_frame.pack(side="top", fill="x", pady=(10, 15))
+header_frame = ttk.Frame(app, padding="3", style="Header.TFrame")
+header_frame.pack(side="top", fill="x", pady=(2, 4))
 
 lbl_title1 = ttk.Label(
     header_frame,
     text="Plano de Desenvolvimento de um Campo de Petróleo",
-    font=("Segoe UI", 22, "bold"),
+    font=("Segoe UI", 18, "bold"),
     foreground="#2a9d8f",
     anchor="center",
     style="Header.TLabel"
 )
-lbl_title1.pack(pady=(0, 5))
+lbl_title1.pack(pady=(0, 1))
 
 lbl_title2 = ttk.Label(
     header_frame,
     text="Calculadora para fase de completação de poços",
-    font=("Segoe UI", 16),
+    font=("Segoe UI", 14),
     foreground="#264653",
     anchor="center",
     style="Header.TLabel"
 )
-lbl_title2.pack(pady=(0, 5))
+lbl_title2.pack(pady=(0, 1))
 
 label_autor = ttk.Label(
     header_frame,
     text="Aluno: Joab Manoel Almeida Santos (UFAL) (LCCV) | Professor: Dr. João Paulo",
-    font=("Segoe UI", 12),
+    font=("Segoe UI", 10),
     foreground="#e76f51",
     anchor="center",
     style="Header.TLabel"
 )
-label_autor.pack()
+label_autor.pack(pady=(0, 1))
 
 # Notebook para as abas
 notebook = ttk.Notebook(app)
@@ -151,10 +164,20 @@ label_nome.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 entry_nome = ttk.Entry(mainframe)
 entry_nome.grid(row=1, column=1, padx=10, pady=5, sticky="w")
 
-labels_text = ["ko (Fator de permeabilidade do óleo):", "h (Altura):", "pr (pressão média do reservatório):",
-               "pw (pressão de fluxo do poço): ", "uo (Viscosidade do óleo):", "Bo (Fator de volume de formação):",
-               "re ( Área de drenagem efetiva do poço):", "rw (Raio do poço):", "L (Comprimento da secção):",
-               "A (Área em corte transversal):"]
+labels_text = [
+    "ko (Fator de permeabilidade do óleo):",
+    "h (Altura):",
+    "pr (pressão média do reservatório):",
+    "pw (pressão de fluxo do poço):",
+    "uo (Viscosidade do óleo):",
+    "Bo (Fator de volume de formação):",
+    "re (Área de drenagem efetiva do poço):",
+    "rw (Raio do poço):",
+    "L (Comprimento da secção):",
+    "A (Área em corte transversal):",
+    "rd (adicionando ft):",
+    "kd (Permeabilidade da zona danificada até uma distância rd):"
+]
 entries = []
 for i, text in enumerate(labels_text):
     label = ttk.Label(mainframe, text=text)
@@ -163,7 +186,9 @@ for i, text in enumerate(labels_text):
     entry.grid(row=i+2, column=1, padx=10, pady=5, sticky="w")
     entries.append(entry)
 
-(entry_ko, entry_h, entry_pr, entry_pw, entry_uo, entry_Bo, entry_re, entry_rw, entry_L, entry_A) = entries
+(entry_ko, entry_h, entry_pr, entry_pw, entry_uo,
+ entry_Bo, entry_re, entry_rw, entry_L, entry_A,
+ entry_rd, entry_k) = entries
 
 tooltip = None
 def show_tooltip(event, text):
@@ -213,6 +238,13 @@ entry_L.bind("<Leave>", hide_tooltip)
 
 entry_A.bind("<Enter>", lambda e: show_tooltip(e, "ft²"))
 entry_A.bind("<Leave>", hide_tooltip)
+
+entry_rd.bind("<Enter>", lambda e: show_tooltip(e, "ft"))
+entry_rd.bind("<Leave>", hide_tooltip)
+
+entry_k.bind("<Enter>", lambda e: show_tooltip(e, "md"))
+entry_k.bind("<Leave>", hide_tooltip)
+
 btn_adicionar = ttk.Button(mainframe, text="Adicionar resultado do Poço", command=adicionar_poco)
 btn_adicionar.grid(row=len(labels_text)+2, column=0, columnspan=2, pady=5)
 
@@ -262,7 +294,7 @@ def atualizar_ranking():
                 idx, 
                 poco["nome"], 
                 f"{poco['fluxo']:.4f}", 
-                poco.get("skin", ""), 
+                f"{poco['skin']:.4f}", 
                 "", 
                 poco.get("deltaP", "")
             )
@@ -289,7 +321,5 @@ def apagar_poco():
 
 btn_apagar = ttk.Button(ranking_frame, text="Apagar Poço", command=apagar_poco)
 btn_apagar.grid(row=3, column=0, columnspan=3, pady=5, sticky="w")
-
-app.mainloop()
 
 app.mainloop()

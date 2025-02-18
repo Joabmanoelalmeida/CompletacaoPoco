@@ -29,6 +29,27 @@ class FluxoOilCalculator:
         if self.kd == 0:
             raise ValueError("kd não pode ser zero para o cálculo do Skin Factor.")
         return ((self.ko / self.kd) - 1) * math.log(self.rd / self.rw)
+    
+    def calcular_qo_alternativo(self) -> float:
+        S = self.calcular_skin()
+        denominador = self.uo * self.Bo * (math.log(0.472 * self.re / self.rw) + S)
+        if denominador == 0:
+            raise ValueError("Denominador é zero, verifique os valores inseridos.")
+        return (0.00708 * self.ko * self.h * (self.pr - self.pw)) / denominador
+
+    def calcular_deltaP(self) -> float:
+        qo = self.calcular_qo()        
+        denominador = 0.00127 * self.A * self.ko
+        if denominador == 0:
+            raise ValueError("Denominador é zero, verifique os valores inseridos.")
+        return (qo * self.Bo * self.uo * self.L) / denominador
+
+    def calcular_eficiencia(self) -> float:
+        ln_part = math.log(0.472 * self.re / self.rw)
+        S = self.calcular_skin()
+        if ln_part + S == 0:
+            raise ValueError("Divisor igual a zero, verifique os valores inseridos.")
+        return ln_part / (ln_part + S)
 
 # Lista global para armazenar resultados dos poços
 poços = []
@@ -52,10 +73,14 @@ def adicionar_poco():
         calculadora = FluxoOilCalculator(ko, h, pr, pw, Bo, uo, re, rw, L, A, rd, kd)
         resultado = calculadora.calcular_qo()
         skin_result = calculadora.calcular_skin()
+        resultado_S = calculadora.calcular_qo_alternativo()
+        delta_p = calculadora.calcular_deltaP()
         poços.append({
             "nome": nome,
             "fluxo": resultado,
             "skin": skin_result,
+            "fluxo_S": resultado_S,
+            "deltaP": delta_p,
             "ko": ko,
             "h": h,
             "pr": pr,
@@ -69,7 +94,7 @@ def adicionar_poco():
             "rd": rd,
             "k": kd
         })
-        label_result.config(text=f"Fluxo calculado para o poço '{nome}': {resultado:.4f} | Skin: {skin_result:.4f}")
+        label_result.config(text=f"Poço '{nome}': Fluxo = {resultado:.4f} | Fluxo usando S = {resultado_S:.4f} | Skin = {skin_result:.4f} | Queda de pressão = {delta_p:.4f}")
         limpar_entradas()
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao calcular o fluxo drenado do poço: {e}")
@@ -81,7 +106,9 @@ def exibir_ranking():
     ranking = sorted(poços, key=lambda p: p["fluxo"], reverse=True)
     texto = "Ranking dos poços (maior fluxo primeiro):\n"
     for idx, poco in enumerate(ranking, start=1):
-        texto += f"{idx}º: Poço '{poco['nome']}' - Fluxo = {poco['fluxo']:.4f} | Skin = {poco['skin']:.4f}\n"
+        texto += (f"{idx}º: Poço '{poco['nome']}' - Fluxo = {poco['fluxo']:.4f} | "
+                  f"Fluxo usando S = {poco['fluxo_S']:.4f} | Skin = {poco['skin']:.4f} | "
+                  f"Queda de pressão = {poco['deltaP']:.4f}\n")
     messagebox.showinfo("Ranking", texto)
 
 def limpar_entradas():
@@ -105,7 +132,7 @@ lbl_title1 = ttk.Label(
     header_frame,
     text="Plano de Desenvolvimento de um Campo de Petróleo",
     font=("Segoe UI", 18, "bold"),
-    foreground="#2a9d8f",
+    foreground="#000000",
     anchor="center",
     style="Header.TLabel"
 )
@@ -115,7 +142,7 @@ lbl_title2 = ttk.Label(
     header_frame,
     text="Calculadora para fase de completação de poços",
     font=("Segoe UI", 14),
-    foreground="#264653",
+    foreground="#000000",
     anchor="center",
     style="Header.TLabel"
 )
@@ -261,19 +288,26 @@ ranking_frame.grid(row=0, column=2, rowspan=10, padx=20, pady=5, sticky="nw")
 ranking_title = ttk.Label(ranking_frame, text="Ranking dos Poços", font=("Segoe UI", 12, "bold"))
 ranking_title.grid(row=0, column=0, columnspan=3, pady=(0,10), sticky="w")
 
-ranking_tree = ttk.Treeview(ranking_frame, columns=("pos", "nome", "fluxo", "skin", "fluxo_S", "deltaP"), show="headings", height=10)
+ranking_tree = ttk.Treeview(
+    ranking_frame,
+    columns=("pos", "nome", "fluxo", "skin", "fluxo_S", "deltaP", "Eficiência(FE)"),
+    show="headings",
+    height=10
+)
 ranking_tree.heading("pos", text="Posição", anchor="w")
 ranking_tree.heading("nome", text="Nome do Poço", anchor="w")
 ranking_tree.heading("fluxo", text="Fluxo", anchor="w")
 ranking_tree.heading("skin", text="Skin factor(S)", anchor="w")
 ranking_tree.heading("fluxo_S", text="Fluxo usando (S)", anchor="w")
 ranking_tree.heading("deltaP", text="Queda de pressão(deltaP)", anchor="w")
+ranking_tree.heading("Eficiência(FE)", text="Eficiência (FE)", anchor="w")
 ranking_tree.column("pos", width=60, anchor="w")
 ranking_tree.column("nome", width=150, anchor="w")
 ranking_tree.column("fluxo", width=100, anchor="w")
 ranking_tree.column("skin", width=100, anchor="w")
 ranking_tree.column("fluxo_S", width=100, anchor="w")
 ranking_tree.column("deltaP", width=150, anchor="w")
+ranking_tree.column("Eficiência(FE)", width=100, anchor="w")
 ranking_tree.grid(row=1, column=0, columnspan=2, sticky="w")
 
 scrollbar = ttk.Scrollbar(ranking_frame, orient="vertical", command=ranking_tree.yview)
@@ -284,19 +318,21 @@ def atualizar_ranking():
     for item in ranking_tree.get_children():
         ranking_tree.delete(item)
     if not poços:
-        ranking_tree.insert("", "end", values=("", "Nenhum poço adicionado", "", "", "", ""))
+        ranking_tree.insert("", "end", values=("", "Nenhum poço adicionado", "", "", "", "", ""))
         return
     ranking = sorted(poços, key=lambda p: p["fluxo"], reverse=True)
     for idx, poco in enumerate(ranking, start=1):
         ranking_tree.insert(
-            "", "end", 
+            "",
+            "end",
             values=(
-                idx, 
-                poco["nome"], 
-                f"{poco['fluxo']:.4f}", 
-                f"{poco['skin']:.4f}", 
-                "", 
-                poco.get("deltaP", "")
+                idx,
+                poco["nome"],
+                f"{poco['fluxo']:.4f}",
+                f"{poco['skin']:.4f}",
+                f"{poco['fluxo_S']:.4f}",
+                f"{poco['deltaP']:.4f}",
+                poco.get("Eficiência(FE)", "")
             )
         )
 

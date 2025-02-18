@@ -75,12 +75,14 @@ def adicionar_poco():
         skin_result = calculadora.calcular_skin()
         resultado_S = calculadora.calcular_qo_alternativo()
         delta_p = calculadora.calcular_deltaP()
+        eficiencia = calculadora.calcular_eficiencia()
         poços.append({
             "nome": nome,
             "fluxo": resultado,
             "skin": skin_result,
             "fluxo_S": resultado_S,
             "deltaP": delta_p,
+            "Eficiência(FE)": eficiencia,
             "ko": ko,
             "h": h,
             "pr": pr,
@@ -94,7 +96,7 @@ def adicionar_poco():
             "rd": rd,
             "k": kd
         })
-        label_result.config(text=f"Poço '{nome}': Fluxo = {resultado:.4f} | Fluxo usando S = {resultado_S:.4f} | Skin = {skin_result:.4f} | Queda de pressão = {delta_p:.4f}")
+        label_result.config(text=f"Poço '{nome}': Fluxo = {resultado:.4f} | Fluxo usando S = {resultado_S:.4f} | Skin = {skin_result:.4f} | Queda de pressão = {delta_p:.4f} | Eficiência = {eficiencia:.4f}")
         limpar_entradas()
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao calcular o fluxo drenado do poço: {e}")
@@ -108,7 +110,7 @@ def exibir_ranking():
     for idx, poco in enumerate(ranking, start=1):
         texto += (f"{idx}º: Poço '{poco['nome']}' - Fluxo = {poco['fluxo']:.4f} | "
                   f"Fluxo usando S = {poco['fluxo_S']:.4f} | Skin = {poco['skin']:.4f} | "
-                  f"Queda de pressão = {poco['deltaP']:.4f}\n")
+                  f"Queda de pressão = {poco['deltaP']:.4f} | Eficiência = {poco.get('Eficiência(FE)', 0):.4f}\n")
     messagebox.showinfo("Ranking", texto)
 
 def limpar_entradas():
@@ -332,7 +334,7 @@ def atualizar_ranking():
                 f"{poco['skin']:.4f}",
                 f"{poco['fluxo_S']:.4f}",
                 f"{poco['deltaP']:.4f}",
-                poco.get("Eficiência(FE)", "")
+                f"{poco.get('Eficiência(FE)', 0):.4f}"
             )
         )
 

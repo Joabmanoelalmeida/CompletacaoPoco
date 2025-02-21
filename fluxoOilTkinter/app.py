@@ -205,12 +205,12 @@ def apagar_poco():
 def adicionar_poco_ip():
     try:
         nome = entry_nome_ip.get()
-        qo = float(entry_qo_prod.get())
+        q1 = float(entry_q1_prod.get())
         Pe = float(entry_Pe.get())
         pwf = float(entry_pwf.get())
         if pwf - Pe == 0:
             raise ValueError("Divisor é zero. Verifique os valores de Pe e pwf.")
-        ip = qo / (pwf - Pe)
+        ip = q1 / (pwf - Pe)
         i_pocos.append({"nome": nome, "ip": ip})
         label_ip_result.config(text=f"Índice de Produtividade (IP) = {ip:.4f}")
         atualizar_ranking_ip()
@@ -238,7 +238,7 @@ def atualizar_ranking_ip():
 
 def limpar_campos_ip():
     entry_nome_ip.delete(0, tk.END)
-    entry_qo_prod.delete(0, tk.END)
+    entry_q1_prod.delete(0, tk.END)
     entry_Pe.delete(0, tk.END)
     entry_pwf.delete(0, tk.END)
 
@@ -488,8 +488,8 @@ entry_nome_ip.grid(row=1, column=1, padx=10, pady=5, sticky="w")
 
 label_qo = ttk.Label(tab_prod_inj, text="Fluxo (qo):")
 label_qo.grid(row=2, column=0, padx=10, pady=5, sticky="w")
-entry_qo_prod = ttk.Entry(tab_prod_inj)
-entry_qo_prod.grid(row=2, column=1, padx=10, pady=5, sticky="w")
+entry_q1_prod = ttk.Entry(tab_prod_inj)
+entry_q1_prod.grid(row=2, column=1, padx=10, pady=5, sticky="w")
 
 label_Pe = ttk.Label(tab_prod_inj, text="Pe (psi):")
 label_Pe.grid(row=3, column=0, padx=10, pady=5, sticky="w")
@@ -511,7 +511,7 @@ label_ip_result.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="w"
 ranking_frame_ip = ttk.Frame(tab_prod_inj, padding="20", relief="sunken")
 ranking_frame_ip.grid(row=0, column=2, rowspan=8, padx=20, pady=5, sticky="nw")
 
-ranking_title_ip = ttk.Label(ranking_frame_ip, text="Ranking dos Poços (IP)", font=("Segoe UI", 12, "bold"))
+ranking_title_ip = ttk.Label(ranking_frame_ip, text="Ranking dos Poços (IP e II)", font=("Segoe UI", 12, "bold"))
 ranking_title_ip.grid(row=0, column=0, columnspan=3, pady=(0,10), sticky="w")
 
 ranking_tree_ip = ttk.Treeview(

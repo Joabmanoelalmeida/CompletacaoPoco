@@ -504,10 +504,41 @@ entry_pwf.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 btn_calcular_ip = ttk.Button(tab_prod_inj, text="Calcular IP", command=adicionar_poco_ip)
 btn_calcular_ip.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
 
-label_ip_result = ttk.Label(tab_prod_inj, text="", font=("Segoe UI", 10, "bold"))
-label_ip_result.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="w")
+btn_calcular_ii = ttk.Button(tab_prod_inj, text="Calcular II", command=adicionar_poco_ip)
+btn_calcular_ii.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 
-# Ranking para Índice de Produtividade
+label_ip_result = ttk.Label(tab_prod_inj, text="", font=("Segoe UI", 10, "bold"))
+label_ip_result.grid(row=7, column=0, columnspan=2, padx=10, pady=10, sticky="w")
+
+# Função para representar a curva IPR
+def representar_curva_ipr():
+    try:
+        Pe = float(entry_Pe.get())
+        pwf = float(entry_pwf.get())
+        q1 = float(entry_q1_prod.get())
+        if pwf - Pe == 0:
+            raise ValueError("Divisor é zero. Verifique os valores de Pe e pwf.")
+        ip = q1 / (pwf - Pe)
+        pwf_values = [i for i in range(int(pwf), int(Pe) + 1)]
+        qo_values = [ip * (Pe - pwf) for pwf in pwf_values]
+        
+        fig, ax = plt.subplots()
+        ax.plot(pwf_values, qo_values, label="Curva IPR")
+        ax.set_xlabel("pwf (psi)")
+        ax.set_ylabel("qo (STB/d)")
+        ax.set_title("Curva IPR")
+        ax.legend()
+        
+        canvas = FigureCanvasTkAgg(fig, master=tab_prod_inj)
+        canvas.draw()
+        canvas.get_tk_widget().grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao representar a curva IPR: {e}")
+
+btn_representar_ipr = ttk.Button(tab_prod_inj, text="Representar Curva IPR", command=representar_curva_ipr)
+btn_representar_ipr.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+
+# Ranking para Índice de Produtividade e Injetividade
 ranking_frame_ip = ttk.Frame(tab_prod_inj, padding="20", relief="sunken")
 ranking_frame_ip.grid(row=0, column=2, rowspan=8, padx=20, pady=5, sticky="nw")
 
@@ -516,16 +547,18 @@ ranking_title_ip.grid(row=0, column=0, columnspan=3, pady=(0,10), sticky="w")
 
 ranking_tree_ip = ttk.Treeview(
     ranking_frame_ip,
-    columns=("pos", "nome", "ip"),
+    columns=("pos", "nome", "ip", "ii"),
     show="headings",
     height=10
 )
 ranking_tree_ip.heading("pos", text="Posição", anchor="w")
 ranking_tree_ip.heading("nome", text="Nome do Poço", anchor="w")
 ranking_tree_ip.heading("ip", text="IP", anchor="w")
+ranking_tree_ip.heading("ii", text="II", anchor="w")
 ranking_tree_ip.column("pos", width=60, anchor="w")
 ranking_tree_ip.column("nome", width=150, anchor="w")
 ranking_tree_ip.column("ip", width=100, anchor="w")
+ranking_tree_ip.column("ii", width=100, anchor="w")
 ranking_tree_ip.grid(row=1, column=0, columnspan=2, sticky="w")
 
 scrollbar_ip = ttk.Scrollbar(ranking_frame_ip, orient="vertical", command=ranking_tree_ip.yview)

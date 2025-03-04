@@ -10,7 +10,7 @@ class FluxoOilCalculator:
         self,
         ko: float, h: float, pr: float, pw: float, Bo: float, uo: float,
         re: float, rw: float, L: float, A: float, rd: float, kd: float,
-        q1: float, psat: float
+        q1: float = 0.0, psat: float = 0.0
     ):
         self.ko = ko
         self.h = h
@@ -115,6 +115,7 @@ def adicionar_poco():
         rd = float(entry_rd.get())
         kd = float(entry_k.get())
 
+        # Instancia com valores padrão para q1 e psat
         calculadora = FluxoOilCalculator(ko, h, pr, pw, Bo, uo, re, rw, L, A, rd, kd)
         resultado = calculadora.calcular_qo()
         skin_result = calculadora.calcular_skin()

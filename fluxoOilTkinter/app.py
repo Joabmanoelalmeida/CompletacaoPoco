@@ -59,15 +59,15 @@ class FluxoOilCalculator:
             raise ValueError("Divisor igual a zero, verifique os valores inseridos.")
         return ln_part / (ln_part + S)
 
-    def calcular_ip(self, Pe: float, pwf1: float) -> float:
-        if pwf1 - Pe == 0:
+    def calcular_ip(self, Pe: float, pwf: float) -> float:
+        if pwf - Pe == 0:
             raise ValueError("Divisor é zero, verifique os valores de Pe e pwf.")
-        return self.q1 / (pwf1 - Pe)
+        return self.q1 / (Pe - pwf)
 
-    def calcular_ii(self, Pe: float, pwf1: float) -> float:
-        if pwf1 - Pe == 0:
+    def calcular_ii(self, Pe: float, pwf: float) -> float:
+        if pwf - Pe == 0:
             raise ValueError("Divisor é zero, verifique os valores de Pe e pwf.")
-        return self.q1 / (pwf1 - Pe)
+        return self.q1 / (pwf - Pe)
     
     def calcular_qsat(self, Pe: float, pwf1: float) -> float:
         ip_value = self.calcular_ip(Pe, pwf1)
@@ -96,7 +96,7 @@ class FluxoOilCalculator:
     
 # Lista global para armazenar resultados dos poços (aba Eficiência)
 poços = []
-# Lista global para armazenar resultados do IP (aba Produtividade/Injetividade)
+# Lista global para armazenar resultados do IP e II (aba Produtividade/Injetabilidade)
 i_pocos = []
 
 def adicionar_poco():
@@ -202,28 +202,38 @@ def apagar_poco():
         poços = [p for p in poços if p["nome"] != nome_poco]
     atualizar_ranking()
 
-# Funções para a aba Produtividade/Injetividade (IP)
+# Funções para a aba Produtividade/Injetabilidade (IP e II)
 def adicionar_poco_ip():
     try:
         nome = entry_nome_ip.get()
+        # Recebe os valores inseridos na aba de Produtividade/Injetabilidade
         q1 = float(entry_q1_prod.get())
         Pe = float(entry_Pe.get())
         pwf = float(entry_pwf.get())
+        psat = float(entry_Psat.get())
         if pwf - Pe == 0:
             raise ValueError("Divisor é zero. Verifique os valores de Pe e pwf.")
-        ip = q1 / (pwf - Pe)
-        i_pocos.append({"nome": nome, "ip": ip})
-        label_ip_result.config(text=f"Índice de Produtividade (IP) = {ip:.4f}")
+        # Usa os parâmetros fornecidos nesta aba para o cálculo de IP e II
+        # Os demais parâmetros não são utilizados nos métodos calcular_ip e calcular_ii
+        calculadora = FluxoOilCalculator(
+            ko=0, h=0, pr=0, pw=0, Bo=0, uo=0,
+            re=0, rw=0, L=0, A=0, rd=0, kd=1,
+            q1=q1, psat=psat
+        )
+        ip = calculadora.calcular_ip(Pe, pwf)
+        ii = calculadora.calcular_ii(Pe, pwf)
+        i_pocos.append({"nome": nome, "ip": ip, "ii": ii, "pwf": pwf})
+        label_ip_result.config(text=f"IP = {ip:.4f} | II = {ii:.4f} | pwf = {pwf:.4f}")
         atualizar_ranking_ip()
         limpar_campos_ip()
     except Exception as e:
-        messagebox.showerror("Erro", f"Erro ao calcular o IP: {e}")
+        messagebox.showerror("Erro", f"Erro ao calcular o IP/II: {e}")
 
 def atualizar_ranking_ip():
     for item in ranking_tree_ip.get_children():
         ranking_tree_ip.delete(item)
     if not i_pocos:
-        ranking_tree_ip.insert("", "end", values=("", "Nenhum poço adicionado", ""))
+        ranking_tree_ip.insert("", "end", values=("", "Nenhum poço adicionado", "", ""))
         return
     ranking = sorted(i_pocos, key=lambda p: p["ip"], reverse=True)
     for idx, poco in enumerate(ranking, start=1):
@@ -233,7 +243,8 @@ def atualizar_ranking_ip():
             values=(
                 idx,
                 poco["nome"],
-                f"{poco['ip']:.4f}"
+                f"{poco['ip']:.4f}",
+                f"{poco['ii']:.4f}"
             )
         )
 
@@ -242,6 +253,7 @@ def limpar_campos_ip():
     entry_q1_prod.delete(0, tk.END)
     entry_Pe.delete(0, tk.END)
     entry_pwf.delete(0, tk.END)
+    entry_Psat.delete(0, tk.END)
 
 def limpar_ranking_ip():
     i_pocos.clear()
@@ -258,6 +270,145 @@ def apagar_poco_ip():
         global i_pocos
         i_pocos = [p for p in i_pocos if p["nome"] != nome_poco]
     atualizar_ranking_ip()
+
+# Global list para armazenar os resultados do canhoneamento para o ranking
+ranking_canh = []
+
+def calcular_deltaP_canh(k: float, phasing: float) -> float:
+    if phasing == 0:
+        return 3000 / (k ** 0.37)
+    elif phasing == 180:
+        return 3000 / (k ** 0.4)
+    else:
+        raise ValueError("Phasing deve ser 0 (oil) ou 180 (gas).")
+
+def calcular_hd(h: float, lp: float, kh: float = 1.0, kv: float = 1.0) -> float:
+    # Se não fornecidos, assume kh/kv = 1
+    return (h / lp) * math.sqrt(kh / kv)
+
+def calcular_rpd(rp: float, h: float, kh: float = 1.0, kv: float = 1.0) -> float:
+    # rpd = (rp/(2*h))*(1 + sqrt(kv/kh)). Com kh=kv=1, rpd = rp/h.
+    return (rp / (2 * h)) * (1 + math.sqrt(kv / kh))
+
+def calcular_rwD(rw: float, lp: float) -> float:
+    return rw / (lp + rw)
+
+def calcular_Sp(rw: float, lp: float, hd: float, rpd: float, phasing: float) -> tuple[float, float, float, float, float, float]:
+    # Seleciona os parâmetros de acordo com o phasing
+    if phasing == 0:
+        C1, C2 = 0.16, 2.675
+        a1, a2 = -2.091, 0.0453
+        b1, b2 = 5.1313, 1.867
+    elif phasing == 180:
+        C1, C2 = 0.026, 532
+        a1, a2 = -2.0251, 0.0943
+        b1, b2 = 3.073, 1.8115
+    else:
+        raise ValueError("Phasing deve ser 0 (oil) ou 180 (gas).")
+    
+    rwD = calcular_rwD(rw, lp)
+    Sh = math.log(4 * rw / lp)
+    Swb = C1 * math.exp(C2 * rwD)
+    if rpd <= 0:
+        raise ValueError("rpd deve ser maior que zero para calcular log.")
+    a = a1 * math.log(rpd) + a2
+    b = b1 * rpd + b2
+    Sv = (10 ** a) * (hd ** (b - 1)) * (rpd ** b)
+    Sp = Sh + Swb + Sv
+    return Sp, Sh, Swb, Sv, a, b
+
+def calcular_Sx(rd: float, rw: float, lp: float) -> float:
+    ratio = rd / (rw + lp)
+    if ratio >= 18:
+        return 0.0
+    elif ratio >= 2:
+        return -0.001
+    elif ratio >= 1.5:
+        return -0.002
+    else:
+        return -0.0024
+
+def calcular_Sdp(Sp: float, Sx: float) -> float:
+    return Sp + Sx
+
+def processar_canhoneamento():
+    try:
+        # Capturar os valores dos campos
+        k = float(entry_k_canh.get())
+        rw = float(entry_rw_canh.get())
+        lp = float(entry_lp.get())
+        rp = float(entry_rp.get())
+        phasing = float(entry_phasing.get())
+        h_canh = float(entry_h_canh.get())
+        rd = float(entry_rd_canh.get())
+        
+        # Cálculos utilizando as funções definidas
+        deltaP = calcular_deltaP_canh(k, phasing)
+        hd = calcular_hd(h_canh, lp)
+        rpd = calcular_rpd(rp, h_canh)
+        rwD_value = calcular_rwD(rw, lp)
+        Sp, Sh, Swb, Sv, a, b = calcular_Sp(rw, lp, hd, rpd, phasing)
+        Sx = calcular_Sx(rd, rw, lp)
+        Sdp = calcular_Sdp(Sp, Sx)
+        
+        # Armazenar os resultados no ranking global para canhoneamento
+        resultado = {
+            "deltaP": deltaP,
+            "hd": hd,
+            "rpd": rpd,
+            "rwD": rwD_value,
+            "Sh": Sh,
+            "Swb": Swb,
+            "Sv": Sv,
+            "Sp": Sp,
+            "Sx": Sx,
+            "Sdp": Sdp,
+            "a": a,
+            "b": b
+        }
+        ranking_canh.append(resultado)
+        
+        # Se não existir um container para o ranking, cria-o
+        if not hasattr(processar_canhoneamento, "container"):
+            processar_canhoneamento.container = ttk.Frame(tab_canhoneamento, padding="20", relief="sunken")
+            processar_canhoneamento.container.grid(row=0, column=2, rowspan=10, padx=20, pady=5, sticky="nw")
+            processar_canhoneamento.tree = ttk.Treeview(
+                processar_canhoneamento.container, 
+                columns=("Pos", "deltaP", "Sp", "Sdp"), 
+                show="headings", height=12
+            )
+            processar_canhoneamento.tree.heading("Pos", text="Posição")
+            processar_canhoneamento.tree.heading("deltaP", text="deltaP")
+            processar_canhoneamento.tree.heading("Sp", text="Sp")
+            processar_canhoneamento.tree.heading("Sdp", text="Sdp")
+            processar_canhoneamento.tree.column("Pos", width=60)
+            processar_canhoneamento.tree.column("deltaP", width=100)
+            processar_canhoneamento.tree.column("Sp", width=100)
+            processar_canhoneamento.tree.column("Sdp", width=100)
+            processar_canhoneamento.tree.pack(side=tk.RIGHT, expand=True, fill="both", padx=10, pady=10)
+        else:
+            # Limpar itens anteriores do ranking para atualizar a listagem
+            for item in processar_canhoneamento.tree.get_children():
+                processar_canhoneamento.tree.delete(item)
+        
+        # Ordenar os resultados do ranking; aqui utilizamos Sdp para definir a posição
+        ranking_ordenado = sorted(ranking_canh, key=lambda x: x["Sdp"], reverse=True)
+        for idx, res in enumerate(ranking_ordenado, start=1):
+            processar_canhoneamento.tree.insert(
+                "", "end",
+                values=(
+                    idx,
+                    f"{res['deltaP']:.4f}",
+                    f"{res['Sp']:.4f}",
+                    f"{res['Sdp']:.4f}"
+                )
+            )
+        
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao processar canhoneamento: {e}")
+
+# Substituindo a função existente do botão por esta nova implementação:
+# The button has already been created with the appropriate command.
 
 app = tk.Tk()
 app.title("Calculadora para completação de poços de petróleo")
@@ -309,9 +460,13 @@ notebook.pack(expand=True, fill="both")
 tab_efficiencia = ttk.Frame(notebook, padding="20")
 notebook.add(tab_efficiencia, text="Eficiência de Fluxo e Queda de pressão")
 
-# Aba de Índice de Produtividade e Injetividade
+# Aba de Índice de Produtividade e Injetabilidade
 tab_prod_inj = ttk.Frame(notebook, padding="20")
 notebook.add(tab_prod_inj, text="Índice de Produtividade e Injetabilidade")
+
+# Aba de Canhoneamento
+tab_canhoneamento = ttk.Frame(notebook, padding="20")
+notebook.add(tab_canhoneamento, text="Canhoneamento")
 
 # Aplicando tema moderno usando ttk nos widgets
 style = ttk.Style(app)
@@ -476,18 +631,15 @@ btn_apagar = ttk.Button(ranking_frame, text="Apagar Poço", command=apagar_poco)
 btn_apagar.grid(row=3, column=0, columnspan=3, pady=5, sticky="w")
 
 # ------------------- Aba Índice de Produtividade e Injetabilidade -------------------
-# Organização dos widgets na aba IP; as linhas são ajustadas para incluir o nome do poço
-
 lbl_info_prod = ttk.Label(tab_prod_inj, text="Informe os valores para o Índice de Produtividade:")
 lbl_info_prod.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="w")
 
-# Campo para o nome do poço
 label_nome_ip = ttk.Label(tab_prod_inj, text="Nome do Poço:")
 label_nome_ip.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 entry_nome_ip = ttk.Entry(tab_prod_inj)
 entry_nome_ip.grid(row=1, column=1, padx=10, pady=5, sticky="w")
 
-label_qo = ttk.Label(tab_prod_inj, text="Fluxo (qo):")
+label_qo = ttk.Label(tab_prod_inj, text="Fluxo (q1):")
 label_qo.grid(row=2, column=0, padx=10, pady=5, sticky="w")
 entry_q1_prod = ttk.Entry(tab_prod_inj)
 entry_q1_prod.grid(row=2, column=1, padx=10, pady=5, sticky="w")
@@ -502,16 +654,17 @@ label_pwf.grid(row=4, column=0, padx=10, pady=5, sticky="w")
 entry_pwf = ttk.Entry(tab_prod_inj)
 entry_pwf.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 
-btn_calcular_ip = ttk.Button(tab_prod_inj, text="Calcular IP", command=adicionar_poco_ip)
-btn_calcular_ip.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+label_Psat = ttk.Label(tab_prod_inj, text="Psat (psi):")
+label_Psat.grid(row=5, column=0, padx=10, pady=5, sticky="w")
+entry_Psat = ttk.Entry(tab_prod_inj)
+entry_Psat.grid(row=5, column=1, padx=10, pady=5, sticky="w")
 
-btn_calcular_ii = ttk.Button(tab_prod_inj, text="Calcular II", command=adicionar_poco_ip)
-btn_calcular_ii.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
+btn_calcular_ip = ttk.Button(tab_prod_inj, text="Calcular IP/II", command=adicionar_poco_ip)
+btn_calcular_ip.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 
 label_ip_result = ttk.Label(tab_prod_inj, text="", font=("Segoe UI", 10, "bold"))
-label_ip_result.grid(row=7, column=0, columnspan=2, padx=10, pady=10, sticky="w")
+label_ip_result.grid(row=8, column=0, columnspan=2, padx=10, pady=10, sticky="w")
 
-# Função para representar a curva IPR
 def representar_curva_ipr():
     try:
         Pe = float(entry_Pe.get())
@@ -519,12 +672,14 @@ def representar_curva_ipr():
         q1 = float(entry_q1_prod.get())
         if pwf - Pe == 0:
             raise ValueError("Divisor é zero. Verifique os valores de Pe e pwf.")
-        ip = q1 / (pwf - Pe)
+        # Utiliza a fórmula para II para representar a curva
+        calculadora = FluxoOilCalculator(ko=0, h=0, pr=0, pw=0, Bo=0, uo=0, re=0, rw=0, L=0, A=0, rd=0, kd=1, q1=q1, psat=0)
+        ii = calculadora.calcular_ii(Pe, pwf)
         pwf_values = [i for i in range(int(pwf), int(Pe) + 1)]
-        qo_values = [ip * (Pe - pwf) for pwf in pwf_values]
+        qo_values = [ii * (Pe - p) for p in pwf_values]
         
         fig, ax = plt.subplots()
-        ax.plot(pwf_values, qo_values, label="Curva IPR")
+        ax.plot(pwf_values, qo_values, label="Curva IPR (usando II)")
         ax.set_xlabel("pwf (psi)")
         ax.set_ylabel("qo (STB/d)")
         ax.set_title("Curva IPR")
@@ -532,16 +687,15 @@ def representar_curva_ipr():
         
         canvas = FigureCanvasTkAgg(fig, master=tab_prod_inj)
         canvas.draw()
-        canvas.get_tk_widget().grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+        canvas.get_tk_widget().grid(row=2, column=3, rowspan=8, padx=10, pady=10, sticky="n")
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao representar a curva IPR: {e}")
 
 btn_representar_ipr = ttk.Button(tab_prod_inj, text="Representar Curva IPR", command=representar_curva_ipr)
-btn_representar_ipr.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+btn_representar_ipr.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
-# Ranking para Índice de Produtividade e Injetividade
 ranking_frame_ip = ttk.Frame(tab_prod_inj, padding="20", relief="sunken")
-ranking_frame_ip.grid(row=0, column=2, rowspan=8, padx=20, pady=5, sticky="nw")
+ranking_frame_ip.grid(row=0, column=2, rowspan=9, padx=20, pady=5, sticky="nw")
 
 ranking_title_ip = ttk.Label(ranking_frame_ip, text="Ranking dos Poços (IP e II)", font=("Segoe UI", 12, "bold"))
 ranking_title_ip.grid(row=0, column=0, columnspan=3, pady=(0,10), sticky="w")
@@ -572,4 +726,118 @@ btn_limpar_ip.grid(row=2, column=0, columnspan=3, pady=5, sticky="w")
 btn_apagar_ip = ttk.Button(ranking_frame_ip, text="Apagar Poço", command=apagar_poco_ip)
 btn_apagar_ip.grid(row=3, column=0, columnspan=3, pady=5, sticky="w")
 
-app.mainloop()
+# ------------------- Aba Canhoneamento -------------------
+mainframe_canh = tab_canhoneamento
+mainframe_canh.columnconfigure(0, weight=1)
+mainframe_canh.columnconfigure(1, weight=1)
+
+# Criação de um frame de entrada e tabela de resultados lado a lado na aba Canhoneamento
+frame_esquerda = ttk.Frame(mainframe_canh, padding="10")
+frame_esquerda.grid(row=0, column=0, sticky="nw")
+
+lbl_info_canh = ttk.Label(frame_esquerda, text="Informe os valores para Canhoneamento:")
+lbl_info_canh.grid(row=0, column=0, columnspan=2, pady=(10, 10), sticky="w")
+
+labels_text_canh = [
+    "k (em md):",
+    "rw (em in):",
+    "lp (em in):",
+    "rp (em in):",
+    "Phasing (em in):",
+    "h (em in):",
+    "rc (em in):",
+    "rd (em in):"
+]
+entries_canh = []
+for i, text in enumerate(labels_text_canh):
+    label = ttk.Label(frame_esquerda, text=text)
+    label.grid(row=i+1, column=0, padx=10, pady=5, sticky="w")
+    entry = ttk.Entry(frame_esquerda)
+    entry.grid(row=i+1, column=1, padx=10, pady=5, sticky="w")
+    entries_canh.append(entry)
+
+(entry_k_canh, entry_rw_canh, entry_lp, entry_rp,
+ entry_phasing, entry_h_canh, entry_rc, entry_rd_canh) = entries_canh
+
+def processar_canhoneamento():
+    try:
+        k = float(entry_k_canh.get())
+        rw = float(entry_rw_canh.get())
+        lp = float(entry_lp.get())
+        rp = float(entry_rp.get())
+        phasing = float(entry_phasing.get())
+        h_canh = float(entry_h_canh.get())
+        rc = float(entry_rc.get())
+        rd_canh = float(entry_rd_canh.get())
+        
+        # Cálculo de exemplo para os resultados (substitua pelos cálculos reais)
+        deltaP = 3000 / (k ** 0.37) if phasing == 0 else 3000 / (k ** 0.4)
+        Sp = 0    # Exemplo; substitua pelo cálculo real
+        Sdp = 0   # Exemplo; substitua pelo cálculo real
+        
+        # Armazena os resultados no ranking global para canhoneamento
+        resultado = {
+            "deltaP": deltaP,
+            "Sp": Sp,
+            "Sdp": Sdp
+        }
+        ranking_canh.append(resultado)
+        
+        # Atualiza a tabela de resultados
+        atualizar_ranking_canh()
+        
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao processar canhoneamento: {e}")
+
+btn_processar_canh = ttk.Button(frame_esquerda, text="Processar Canhoneamento", command=processar_canhoneamento)
+btn_processar_canh.grid(row=len(labels_text_canh)+1, column=0, columnspan=2, pady=10, sticky="w")
+
+# Criação do frame para a tabela de resultados, reposicionado mais à esquerda (coluna 1 ao invés de 2)
+ranking_frame_canh = ttk.Frame(mainframe_canh, padding="20", relief="sunken")
+ranking_frame_canh.grid(row=0, column=1, rowspan=9, padx=20, pady=5, sticky="w")
+
+ranking_title_canh = ttk.Label(ranking_frame_canh, text="Resultados", font=("Segoe UI", 12, "bold"))
+ranking_title_canh.grid(row=0, column=0, columnspan=3, pady=(0,10), sticky="w")
+
+ranking_tree_canh = ttk.Treeview(
+    ranking_frame_canh,
+    columns=("pos", "deltaP", "Sp", "Sdp"),
+    show="headings",
+    height=10
+)
+ranking_tree_canh.heading("pos", text="Posição", anchor="w")
+ranking_tree_canh.heading("deltaP", text="deltaP", anchor="w")
+ranking_tree_canh.heading("Sp", text="Sp", anchor="w")
+ranking_tree_canh.heading("Sdp", text="Sdp", anchor="w")
+ranking_tree_canh.column("pos", width=60, anchor="w")
+ranking_tree_canh.column("deltaP", width=100, anchor="w")
+ranking_tree_canh.column("Sp", width=100, anchor="w")
+ranking_tree_canh.column("Sdp", width=100, anchor="w")
+ranking_tree_canh.grid(row=1, column=0, columnspan=3, sticky="w")
+
+scrollbar_canh = ttk.Scrollbar(ranking_frame_canh, orient="vertical", command=ranking_tree_canh.yview)
+ranking_tree_canh.configure(yscroll=scrollbar_canh.set)
+scrollbar_canh.grid(row=1, column=3, sticky="ns")
+
+btn_limpar_canh = ttk.Button(ranking_frame_canh, text="Limpar Ranking", command=lambda: [ranking_canh.clear(), atualizar_ranking_canh()])
+btn_limpar_canh.grid(row=2, column=0, columnspan=3, pady=5, sticky="w")
+
+def atualizar_ranking_canh():
+    for item in ranking_tree_canh.get_children():
+        ranking_tree_canh.delete(item)
+    if not ranking_canh:
+        ranking_tree_canh.insert("", "end", values=("", "Nenhum resultado", "", ""))
+        return
+    ranking_ordenado = sorted(ranking_canh, key=lambda x: x["Sdp"], reverse=True)
+    for idx, res in enumerate(ranking_ordenado, start=1):
+        ranking_tree_canh.insert(
+            "", "end",
+            values=(
+                idx,
+                f"{res['deltaP']:.4f}",
+                f"{res['Sp']:.4f}",
+                f"{res['Sdp']:.4f}"
+            )
+        )
+
+tk.mainloop()
